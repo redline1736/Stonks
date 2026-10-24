@@ -1,0 +1,897 @@
+"""
+Stonks-XGB v2.2 — full version
+===============================
+- Multi-fold walk-forward (folds 2020-21, 2022-23; test 2024+)
+- Train final model on 2000-2023, ensemble of 5 seeds
+- Rate-targeted threshold (~20% trade rate), not accuracy-based
+- Stronger L2 (10) to dampen volatility-feature dominance
+- Loads full 5-seed ensemble at inference time
+"""
+
+import yfinance as yf
+import pandas as pd
+import numpy as np
+import os
+import pickle
+import json
+import time
+import glob
+import warnings
+import argparse
+import joblib
+from datetime import datetime, timedelta
+from tqdm import tqdm
+
+from sklearn.preprocessing import RobustScaler
+from sklearn.metrics import (classification_report, confusion_matrix,
+                              roc_auc_score, f1_score)
+import xgboost as xgb
+
+warnings.filterwarnings("ignore")
+
+# =========================================================
+# CONFIG
+# =========================================================
+
+SECTOR_TICKERS = {
+    "Information Technology": [
+        "AAPL", "MSFT", "NVDA", "AVGO", "CRM", "AMD", "INTC", "CSCO",
+        "PANW", "CRWD", "DDOG", "MDB", "ZS", "NET", "SMCI", "PLTR",
+    ],
+    "Communication Services": [
+        "GOOGL", "META", "NFLX", "DIS", "CMCSA", "T", "VZ", "SNAP",
+    ],
+    "Consumer Cyclical": [
+        "AMZN", "TSLA", "HD", "MCD", "NKE", "SBUX", "LOW", "BKNG",
+        "LULU", "CMG", "CROX", "DECK", "ANF", "AEO", "RL", "ROKU",
+        "UBER", "SHOP", "DKNG",
+    ],
+    "Financials": [
+        "JPM", "V", "MA", "BAC", "WFC", "BLK", "GS", "MS", "AXP", "C",
+        "SCHW", "KKR", "APO", "ARES",
+    ],
+    "Healthcare": [
+        "LLY", "UNH", "JNJ", "ABBV", "MRK", "PFE", "TMO", "DHR",
+        "VRTX", "REGN", "MRNA",
+    ],
+    "Consumer Defensive": [
+        "WMT", "PG", "COST", "KO", "PEP", "CL", "MDLZ", "MO",
+    ],
+    "Energy": [
+        "XOM", "CVX", "COP", "EOG", "SLB", "OXY", "MPC", "VLO",
+    ],
+    "Industrials": [
+        "CAT", "GE", "BA", "UPS", "RTX", "HON", "MMM", "LMT",
+        "DE", "SPGI",
+    ],
+    "Materials": [
+        "LIN", "SHW", "APD", "ECL", "NEM", "FCX", "DOW", "DD",
+    ],
+    "Utilities": [
+        "NEE", "DUK", "SO", "CEG", "AEP", "SRE", "EXC", "XEL",
+    ],
+    "Real Estate": [
+        "PLD", "AMT", "EQIX", "WELL", "SPG", "PSA", "O", "DLR",
+    ],
+    "Data Centers & Infra": [
+        "VRT", "STRL", "IRM", "NVT", "ENPH", "FSLR",
+    ],
+}
+
+ETF_TICKERS = ["SPY", "QQQ", "IWM", "TLT", "GLD"]
+ETF_SECTOR_NAME = "ETF_Macro"
+
+TICKER_SECTOR = {}
+for sector, tickers in SECTOR_TICKERS.items():
+    for t in tickers:
+        TICKER_SECTOR[t] = sector
+for etf in ETF_TICKERS:
+    TICKER_SECTOR[etf] = ETF_SECTOR_NAME
+
+TICKERS = list(TICKER_SECTOR.keys())
+SECTOR_NAMES = sorted(set(TICKER_SECTOR.values()))
+
+TRAIN_START = "2000-01-01"
+TEST_END    = datetime.now().strftime("%Y-%m-%d")
+
+INTERVAL = "1d"
+FUTURE_DAYS = 5
+EPS = 1e-9
+
+# TARGET_OPTIONS:
+#   "beat_spy" — 1 if Future_Return > SPY_Return_5d
+#   "top_30"   — 1 if in top 30% of cross-sectional 5d returns
+#   "top_20"   — 1 if in top 20%
+TARGET_MODE = "top_30"
+
+MODEL_DIR = "models"
+os.makedirs(MODEL_DIR, exist_ok=True)
+
+CACHE_FILE    = os.path.join(MODEL_DIR, "stonks_data_daily_v2.pkl")
+FUNDA_CACHE   = os.path.join(MODEL_DIR, "fundamentals_v2.pkl")
+MODEL_PATH    = os.path.join(MODEL_DIR, "xgboost_model_v2.json")
+FEATURES_PATH = os.path.join(MODEL_DIR, "feature_list_v2.json")
+SCALER_PATH   = os.path.join(MODEL_DIR, "scaler_v2.pkl")
+THRESH_PATH   = os.path.join(MODEL_DIR, "threshold_v2.json")
+
+print(f"Total stocks: {len(TICKERS)} across {len(SECTOR_NAMES)} sectors")
+print(f"Daily data from {TRAIN_START} to {TEST_END}")
+print(f"Target mode: {TARGET_MODE}")
+
+
+# =========================================================
+# FUNDAMENTALS
+# =========================================================
+
+def fetch_all_fundamentals():
+    if os.path.exists(FUNDA_CACHE):
+        print("Loading cached fundamentals...")
+        with open(FUNDA_CACHE, "rb") as f:
+            return pickle.load(f)
+    print("Fetching fundamentals...")
+    funda = {}
+    for ticker in tqdm(TICKERS, desc="Fundamentals"):
+        try:
+            t = yf.Ticker(ticker)
+            info = t.info or {}
+            funda[ticker] = {
+                "market_cap": info.get("marketCap", np.nan),
+                "pe_ratio": info.get("trailingPE", np.nan),
+                "forward_pe": info.get("forwardPE", np.nan),
+                "ps_ratio": info.get("priceToSalesTrailing12Months", np.nan),
+                "pb_ratio": info.get("priceToBook", np.nan),
+                "peg_ratio": info.get("pegRatio", np.nan),
+                "rev_growth": info.get("revenueGrowth", np.nan),
+                "eps_growth": info.get("earningsGrowth", np.nan),
+                "current_ratio": info.get("currentRatio", np.nan),
+                "debt_equity": info.get("debtToEquity", np.nan),
+                "op_margin": info.get("operatingMargins", np.nan),
+                "net_margin": info.get("profitMargins", np.nan),
+                "roe": info.get("returnOnEquity", np.nan),
+                "div_yield": info.get("dividendYield", np.nan),
+                "fcf_yield": info.get("freeCashFlowYield", np.nan),
+                "gross_margin": info.get("grossMargins", np.nan),
+            }
+            time.sleep(0.2)
+        except:
+            funda[ticker] = {}
+    with open(FUNDA_CACHE, "wb") as f:
+        pickle.dump(funda, f)
+    return funda
+
+
+# =========================================================
+# DOWNLOAD
+# =========================================================
+
+def fetch_and_cache():
+    if os.path.exists(CACHE_FILE):
+        print("Loading cached daily data (v2)...")
+        with open(CACHE_FILE, "rb") as f:
+            df = pickle.load(f)
+        print(f"Loaded {len(df):,} rows across {df['Ticker'].nunique()} tickers")
+        return df
+
+    os.makedirs(os.path.join(MODEL_DIR, "partial_daily_v2"), exist_ok=True)
+    all_dfs = []
+    for ticker in TICKERS:
+        cached_path = os.path.join(MODEL_DIR, "partial_daily_v2", f"{ticker}.pkl")
+        if os.path.exists(cached_path):
+            all_dfs.append(pd.read_pickle(cached_path))
+            continue
+        try:
+            t = yf.Ticker(ticker)
+            df_t = t.history(start=TRAIN_START, end=TEST_END,
+                              interval=INTERVAL, auto_adjust=True)
+            if df_t.empty:
+                continue
+            keep = [c for c in ["Open", "High", "Low", "Close", "Volume"]
+                    if c in df_t.columns]
+            df_t = df_t[keep].copy()
+            df_t["Ticker"] = ticker
+            df_t.index.name = "Date"
+            df_t = df_t.reset_index()
+            df_t.to_pickle(cached_path)
+            all_dfs.append(df_t)
+            time.sleep(0.3)
+        except Exception as e:
+            print(f"  FAILED {ticker}: {e}")
+
+    df = pd.concat(all_dfs, ignore_index=False)
+    df.to_pickle(CACHE_FILE)
+    print(f"Downloaded {len(df):,} rows, {df['Ticker'].nunique()} tickers")
+    return df
+
+
+# =========================================================
+# PER-TICKER TECHNICAL FEATURES
+# =========================================================
+
+def add_features(df_ticker):
+    df_ticker = df_ticker.sort_values("Date").copy()
+    close  = df_ticker["Close"].astype(float)
+    high   = df_ticker["High"].astype(float)
+    low    = df_ticker["Low"].astype(float)
+    volume = df_ticker["Volume"].astype(float)
+    open_p = df_ticker["Open"].astype(float)
+
+    for p in [1, 2, 3, 5, 10, 21, 63]:
+        df_ticker[f"Return_{p}d"] = close.pct_change(p)
+    df_ticker["Log_Return"] = np.log((close + EPS) / (close.shift(1) + EPS))
+
+    for p in [5, 10, 20, 50, 200]:
+        df_ticker[f"SMA_{p}"]       = close.rolling(p).mean()
+        df_ticker[f"SMA_{p}_Ratio"] = close / (df_ticker[f"SMA_{p}"] + EPS)
+        df_ticker[f"EMA_{p}"]       = close.ewm(span=p, adjust=False).mean()
+        df_ticker[f"EMA_{p}_Ratio"] = close / (df_ticker[f"EMA_{p}"] + EPS)
+
+    ema12 = close.ewm(span=12, adjust=False).mean()
+    ema26 = close.ewm(span=26, adjust=False).mean()
+    df_ticker["MACD"]        = ema12 - ema26
+    df_ticker["MACD_Signal"] = df_ticker["MACD"].ewm(span=9, adjust=False).mean()
+    df_ticker["MACD_Hist"]   = df_ticker["MACD"] - df_ticker["MACD_Signal"]
+    df_ticker["MACD_Cross"]  = (df_ticker["MACD"] > df_ticker["MACD_Signal"]).astype(float)
+    df_ticker["MACD_Accel"]  = df_ticker["MACD_Hist"].diff(3)
+
+    delta = close.diff()
+    gain  = delta.where(delta > 0, 0.0).rolling(14).mean()
+    loss  = (-delta.where(delta < 0, 0.0)).rolling(14).mean()
+    rs    = gain / (loss + EPS)
+    df_ticker["RSI"]        = 100 - (100 / (1 + rs))
+    df_ticker["RSI_Change"] = df_ticker["RSI"].diff(5)
+    df_ticker["RSI_MA"]     = df_ticker["RSI"].rolling(5).mean()
+
+    bb_mid = close.rolling(20).mean()
+    bb_std = close.rolling(20).std()
+    df_ticker["BB_Width"]    = (2 * bb_std) / (bb_mid + EPS)
+    df_ticker["BB_Position"] = (close - bb_mid) / (bb_std + EPS)
+    df_ticker["BB_%B"]       = (close - (bb_mid - 2*bb_std)) / (4*bb_std + EPS)
+
+    tr = pd.concat([high - low, (high - close.shift()).abs(),
+                    (low - close.shift()).abs()], axis=1).max(axis=1)
+    df_ticker["ATR"]       = tr.rolling(14).mean()
+    df_ticker["ATR_Ratio"] = df_ticker["ATR"] / (close + EPS)
+
+    df_ticker["Volume_SMA_20"]    = volume.rolling(20).mean()
+    df_ticker["Volume_Ratio"]     = volume / (df_ticker["Volume_SMA_20"] + EPS)
+    df_ticker["Volume_Change_5d"] = volume.pct_change(5)
+
+    df_ticker["Volatility_20d"]   = df_ticker["Log_Return"].rolling(20).std()
+    df_ticker["Volatility_60d"]   = df_ticker["Log_Return"].rolling(60).std()
+    df_ticker["Volatility_Ratio"] = df_ticker["Volatility_20d"] / (df_ticker["Volatility_60d"] + EPS)
+
+    for p in [20, 50, 200]:
+        hp = high.rolling(p).max()
+        lp = low.rolling(p).min()
+        df_ticker[f"Price_Position_{p}"] = (close - lp) / (hp - lp + EPS)
+
+    df_ticker["Body"]       = close - open_p
+    df_ticker["Upper_Wick"] = high - np.maximum(close, open_p)
+    df_ticker["Lower_Wick"] = np.minimum(close, open_p) - low
+    df_ticker["Range"]      = high - low
+    df_ticker["Body_Ratio"] = abs(df_ticker["Body"]) / (df_ticker["Range"] + EPS)
+    df_ticker["Is_Green"]   = (close > open_p).astype(float)
+
+    df_ticker["Future_Close"]  = close.shift(-FUTURE_DAYS)
+    df_ticker["Future_Return"] = (df_ticker["Future_Close"] - close) / (close + EPS)
+
+    for col in df_ticker.select_dtypes(include=[np.number]).columns:
+        df_ticker[col] = df_ticker[col].replace([np.inf, -np.inf], np.nan)
+
+    return df_ticker
+
+
+# =========================================================
+# CROSS-SECTIONAL + MARKET REGIME FEATURES
+# =========================================================
+
+def add_cross_sectional_and_regime(df):
+    df = df.copy()
+    df["Sector"] = df["Ticker"].map(TICKER_SECTOR)
+
+    spy_cols = [
+        "Date", "Close",
+        "Return_1d", "Return_2d", "Return_3d", "Return_5d",
+        "Return_10d", "Return_21d", "Return_63d",
+        "Volatility_20d", "Volatility_60d",
+        "SMA_20", "SMA_50", "SMA_200",
+        "SMA_20_Ratio", "SMA_50_Ratio", "SMA_200_Ratio",
+        "RSI", "ATR_Ratio", "BB_Position",
+    ]
+    spy_cols = [c for c in spy_cols if c in df.columns]
+
+    spy = df[df["Ticker"] == "SPY"][spy_cols].copy()
+    spy = spy.sort_values("Date").reset_index(drop=True)
+
+    for p in [20, 50, 200]:
+        spy[f"SPY_SMA_{p}"]   = spy["Close"].rolling(p).mean()
+        spy[f"SPY_Above_{p}"] = (spy["Close"] > spy[f"SPY_SMA_{p}"]).astype(float)
+        spy[f"SPY_Slope_{p}"] = spy[f"SPY_SMA_{p}"].pct_change(5)
+
+    spy["SPY_Trend_Strength"] = (
+        spy["SPY_Above_20"] + spy["SPY_Above_50"] + spy["SPY_Above_200"]
+    ) / 3.0
+    if "Volatility_20d" in spy.columns:
+        spy["SPY_Vol_Regime"] = spy["Volatility_20d"].rolling(60).rank(pct=True)
+    else:
+        spy["SPY_Vol_Regime"] = 0.5
+
+    if "SMA_50" in df.columns:
+        breadth = (
+            df.assign(above_50=(df["Close"] > df["SMA_50"]).astype(float))
+              .groupby("Date")["above_50"].mean()
+              .rename("Market_Breadth_50")
+              .reset_index()
+        )
+    else:
+        breadth = pd.DataFrame({"Date": df["Date"].unique(),
+                                 "Market_Breadth_50": 0.5})
+    spy = spy.merge(breadth, on="Date", how="left")
+
+    regime_cols = [c for c in spy.columns
+                   if c.startswith("SPY_") or c == "Market_Breadth_50"]
+    df = df.merge(spy[["Date"] + regime_cols], on="Date", how="left")
+
+    cs_cols = [
+        "Return_1d", "Return_5d", "Return_10d", "Return_21d", "Return_63d",
+        "RSI", "RSI_Change",
+        "Volatility_20d", "ATR_Ratio",
+        "Volume_Ratio", "Volume_Change_5d",
+        "SMA_20_Ratio", "SMA_50_Ratio", "SMA_200_Ratio",
+        "Price_Position_20", "Price_Position_50", "Price_Position_200",
+        "BB_Position", "MACD_Hist",
+    ]
+    cs_cols = [c for c in cs_cols if c in df.columns]
+
+    for col in cs_cols:
+        df[f"{col}_Rank"] = df.groupby("Date")[col].rank(pct=True)
+        g = df.groupby("Date")[col]
+        df[f"{col}_Z"] = (df[col] - g.transform("mean")) / (g.transform("std") + EPS)
+
+    for col in ["Return_5d", "Return_10d", "Return_21d", "RSI",
+                "Volatility_20d", "Volume_Ratio", "BB_Position"]:
+        if col in df.columns:
+            sec_mean = df.groupby(["Date", "Sector"])[col].transform("mean")
+            df[f"{col}_SectorRel"] = df[col] - sec_mean
+
+    return_cols = ["Return_1d", "Return_5d", "Return_10d", "Return_21d"]
+    for col in return_cols:
+        if col in df.columns and col in spy.columns:
+            spy_map = spy.set_index("Date")[col]
+            df[f"{col}_vsSPY"] = df[col] - df["Date"].map(spy_map)
+
+    return df
+
+
+# =========================================================
+# BUILD DATASET
+# =========================================================
+
+def build_dataset():
+    print("=" * 60)
+    print("BUILDING DATASET v2.2 — cross-sectional + regime")
+    print("=" * 60)
+
+    df = fetch_and_cache()
+    if "Date" not in df.columns:
+        df = df.reset_index()
+    df["Date"] = pd.to_datetime(df["Date"])
+    df["Sector"] = df["Ticker"].map(TICKER_SECTOR)
+
+    for c in df.columns:
+        if df[c].dtype == bool:
+            df[c] = df[c].astype(np.float64)
+        elif df[c].dtype == object:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+
+    funda = fetch_all_fundamentals()
+
+    print("Engineering per-ticker features...")
+    processed = []
+    dropped = []
+    for ticker in tqdm(TICKERS, desc="Features"):
+        tdf = df[df["Ticker"] == ticker].copy()
+        if len(tdf) < 250:
+            dropped.append(ticker)
+            continue
+        tdf = add_features(tdf)
+        processed.append(tdf)
+    if dropped:
+        print(f"Dropped (insufficient history <250d): {dropped}")
+    df = pd.concat(processed)
+    df = df.replace([np.inf, -np.inf], np.nan)
+
+    print("Adding cross-sectional + regime features...")
+    df = add_cross_sectional_and_regime(df)
+
+    print("Adding fundamentals...")
+    for ticker in TICKERS:
+        mask = df["Ticker"] == ticker
+        if mask.sum() == 0:
+            continue
+        f = funda.get(ticker, {})
+        for col in ["market_cap", "pe_ratio", "forward_pe", "ps_ratio", "pb_ratio",
+                     "peg_ratio", "rev_growth", "eps_growth", "current_ratio",
+                     "debt_equity", "op_margin", "net_margin", "roe", "fcf_yield",
+                     "div_yield", "gross_margin"]:
+            df.loc[mask, col] = f.get(col, np.nan)
+
+    if TARGET_MODE == "beat_spy":
+        spy = df[df["Ticker"] == "SPY"][["Date", "Return_5d"]].rename(
+            columns={"Return_5d": "SPY_Return_5d"})
+        df = df.merge(spy, on="Date", how="left")
+        df["Target"] = ((df["Future_Return"] - df["SPY_Return_5d"]) > 0).astype(int)
+    elif TARGET_MODE == "top_30":
+        df["Target"] = (
+            df.groupby("Date")["Future_Return"]
+              .transform(lambda x: (x >= x.quantile(0.70)).astype(int))
+        )
+    elif TARGET_MODE == "top_20":
+        df["Target"] = (
+            df.groupby("Date")["Future_Return"]
+              .transform(lambda x: (x >= x.quantile(0.80)).astype(int))
+        )
+    else:
+        raise ValueError(f"Unknown TARGET_MODE: {TARGET_MODE}")
+
+    print(f"Target: {df['Target'].value_counts().to_dict()}")
+    print(f"Avg Future Return: {df['Future_Return'].mean():.4f}")
+
+    feature_keywords = [
+        "Return_", "Log_Return", "SMA_", "EMA_", "MACD", "RSI",
+        "BB_", "ATR", "Volume_", "Volatility", "Price_Position",
+        "Body", "Wick", "Range", "Is_Green", "Body_Ratio",
+        "market_cap", "pe_ratio", "forward_pe", "ps_ratio", "pb_ratio",
+        "peg_ratio", "rev_growth", "eps_growth", "current_ratio",
+        "debt_equity", "op_margin", "net_margin", "roe", "fcf_yield",
+        "div_yield", "gross_margin",
+        "_Rank", "_Z", "_SectorRel", "_vsSPY",
+        "SPY_", "Market_Breadth_",
+    ]
+    exclude = {"Date", "Ticker", "Sector", "Future_Close", "Future_Return",
+               "Target", "SPY_Return_5d"}
+    feature_columns = sorted(set(
+        c for c in df.columns
+        if any(k in c for k in feature_keywords) and c not in exclude
+    ))
+
+    sd = pd.get_dummies(df["Sector"], prefix="Sector")
+    df = pd.concat([df, sd], axis=1)
+    df["Is_ETF"] = df["Ticker"].isin(ETF_TICKERS).astype(np.float64)
+
+    for c in df.columns:
+        if c.startswith("Sector_") or c == "Is_ETF":
+            if df[c].dtype == bool:
+                df[c] = df[c].astype(np.float64)
+
+    sector_cols = [c for c in df.columns if c.startswith("Sector_")]
+    feature_columns = sorted(set(feature_columns + sector_cols + ["Is_ETF"]))
+
+    nan_c = df[feature_columns].isna().sum()
+    bad = nan_c[nan_c > len(df) * 0.5].index.tolist()
+    if bad:
+        print(f"Removing {len(bad)} high-NaN: {bad}")
+        feature_columns = [c for c in feature_columns if c not in bad]
+
+    for col in feature_columns:
+        if col not in df.columns:
+            continue
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+        if df[col].dtype == bool:
+            df[col] = df[col].astype(np.float64)
+
+    for col in feature_columns:
+        if col not in df.columns:
+            continue
+        s = df[col]
+        if s.isna().all():
+            df[col] = 0.0
+        else:
+            med = s.median()
+            if pd.isna(med):
+                med = 0.0
+            df[col] = s.fillna(med).astype(np.float64)
+
+    corr = df[feature_columns].corr().abs()
+    upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
+    to_drop = [c for c in upper.columns if any(upper[c] > 0.95)]
+    if to_drop:
+        print(f"Removing {len(to_drop)} highly correlated features")
+        feature_columns = [c for c in feature_columns if c not in to_drop]
+
+    for col in feature_columns:
+        if col not in df.columns:
+            continue
+        s = df[col]
+        if s.std() == 0 or s.nunique() < 2:
+            continue
+        try:
+            q1, q99 = s.quantile(0.01), s.quantile(0.99)
+            df[col] = s.clip(q1, q99).astype(np.float64)
+        except Exception as e:
+            print(f"  Clip skipped for {col}: {e}")
+            df[col] = s.astype(np.float64)
+
+    before = len(df)
+    df = df.dropna(subset=["Target"])
+    print(f"After drop: {len(df):,} rows (dropped {before - len(df):,})")
+
+    print(f"Total features: {len(feature_columns)}")
+    with open(FEATURES_PATH, "w") as f:
+        json.dump(feature_columns, f)
+
+    return df, feature_columns
+
+
+# =========================================================
+# THRESHOLD TUNING
+# =========================================================
+
+def find_optimal_threshold(y_true, y_proba, metric="f1"):
+    best_t, best_v = 0.5, -1
+    for t in np.arange(0.10, 0.90, 0.005):
+        pred = (y_proba > t).astype(int)
+        if metric == "accuracy":
+            v = (pred == y_true).mean()
+        else:
+            v = f1_score(y_true, pred, zero_division=0)
+        if v > best_v:
+            best_v, best_t = v, t
+    return best_t, best_v
+
+
+# =========================================================
+# TRAINING v2.2 — Walk-forward multi-fold + rate-targeted threshold
+# =========================================================
+
+def train_xgboost(df, feature_columns):
+    print("\n" + "=" * 60)
+    print(f"TRAINING XGBOOST v2.2 — TARGET={TARGET_MODE}")
+    print("=" * 60)
+
+    feature_columns = [c for c in feature_columns if c in df.columns]
+
+    folds = [
+        ("fold1", "2000-01-01", "2020-01-01", "2022-01-01"),
+        ("fold2", "2000-01-01", "2022-01-01", "2024-01-01"),
+    ]
+    test_start = "2026-01-01"
+
+    base_params = {
+        "objective": "binary:logistic",
+        "max_depth": 4,
+        "learning_rate": 0.02,
+        "subsample": 0.7,
+        "colsample_bytree": 0.5,
+        "colsample_bylevel": 0.5,
+        "min_child_weight": 50,
+        "gamma": 1.0,
+        "reg_alpha": 1.0,
+        "reg_lambda": 10.0,
+        "eval_metric": "auc",
+        "tree_method": "hist",
+        "verbosity": 0,
+    }
+
+    fold_models = []
+    fold_iters  = []
+
+    for fname, tr_start, tr_end, va_end in folds:
+        print(f"\n--- {fname}: train <{tr_end}, val {tr_end} -> {va_end} ---")
+        tr = df[(df["Date"] >= tr_start) & (df["Date"] < tr_end)]
+        va = df[(df["Date"] >= tr_end) & (df["Date"] < va_end)]
+
+        X_tr = tr[feature_columns].fillna(0).replace([np.inf, -np.inf], 0).values.astype(np.float64)
+        y_tr = tr["Target"].values.astype(int)
+        X_va = va[feature_columns].fillna(0).replace([np.inf, -np.inf], 0).values.astype(np.float64)
+        y_va = va["Target"].values.astype(int)
+
+        pos = y_tr.sum(); neg = len(y_tr) - pos
+        spw = neg / max(pos, 1)
+        p = base_params.copy()
+        p["scale_pos_weight"] = spw
+        p["random_state"] = 42
+
+        dtr = xgb.DMatrix(X_tr, label=y_tr, feature_names=feature_columns)
+        dva = xgb.DMatrix(X_va, label=y_va, feature_names=feature_columns)
+        m = xgb.train(p, dtr, num_boost_round=2000,
+                      evals=[(dva, "val")], early_stopping_rounds=80,
+                      verbose_eval=100)
+        print(f"  best_iter={m.best_iteration}")
+        fold_models.append((m, dva, y_va))
+        fold_iters.append(m.best_iteration or 200)
+
+    print(f"\n--- Final: train <{test_start} ---")
+    final_tr = df[df["Date"] < test_start]
+    X_ftr = final_tr[feature_columns].fillna(0).replace([np.inf, -np.inf], 0).values.astype(np.float64)
+    y_ftr = final_tr["Target"].values.astype(int)
+    pos = y_ftr.sum(); neg = len(y_ftr) - pos
+    spw = neg / max(pos, 1)
+    n_rounds = max(int(np.mean(fold_iters) * 1.1), 200)
+    print(f"  train rows={len(y_ftr):,}  pos_rate={pos/len(y_ftr):.3f}  "
+          f"n_rounds={n_rounds}")
+
+    d_ftr = xgb.DMatrix(X_ftr, label=y_ftr, feature_names=feature_columns)
+    final_models = []
+    for seed in [42, 7, 123, 2024, 99]:
+        p = base_params.copy()
+        p["scale_pos_weight"] = spw
+        p["random_state"] = seed
+        m = xgb.train(p, d_ftr, num_boost_round=n_rounds, verbose_eval=False)
+        final_models.append(m)
+
+    te = df[df["Date"] >= test_start]
+    X_te = te[feature_columns].fillna(0).replace([np.inf, -np.inf], 0).values.astype(np.float64)
+    y_te = te["Target"].values.astype(int)
+    d_te = xgb.DMatrix(X_te, label=y_te, feature_names=feature_columns)
+
+    test_preds_ens = np.mean([m.predict(d_te) for m in final_models], axis=0)
+
+    oof_preds, oof_y = [], []
+    for m, dva, y_va in fold_models:
+        oof_preds.append(m.predict(dva))
+        oof_y.append(y_va)
+    oof_preds = np.concatenate(oof_preds)
+    oof_y     = np.concatenate(oof_y)
+
+    target_rate = 0.20
+    sorted_p = np.sort(oof_preds)[::-1]
+    cut_idx  = int(len(sorted_p) * target_rate)
+    rate_thr = sorted_p[cut_idx]
+    best_f1_thr, best_f1 = find_optimal_threshold(oof_y, oof_preds, "f1")
+    chosen_thr = float(rate_thr)
+    print(f"\nRate-targeted thr ({target_rate:.0%}): {chosen_thr:.4f}")
+    print(f"F1-best        thr: {best_f1_thr:.4f}  F1={best_f1:.4f}")
+
+    with open(THRESH_PATH, "w") as f:
+        json.dump({"threshold": chosen_thr,
+                   "rate_target": target_rate,
+                   "f1_thr": best_f1_thr,
+                   "mode": TARGET_MODE}, f)
+
+    scaler_final = RobustScaler(quantile_range=(5, 95))
+    scaler_final.fit(X_ftr)
+    final_models[0].save_model(MODEL_PATH)
+    joblib.dump(scaler_final, SCALER_PATH)
+    for i, m in enumerate(final_models):
+        m.save_model(os.path.join(MODEL_DIR, f"xgb_seed_{i}.json"))
+
+    print("\n" + "=" * 60)
+    print(f"TEST SET PERFORMANCE (5-seed ensemble, rate-thr={chosen_thr:.3f})")
+    print("=" * 60)
+    y_pred = (test_preds_ens > chosen_thr).astype(int)
+    print(classification_report(y_te, y_pred, target_names=["NOT_BUY", "BUY"],
+                                zero_division=0))
+    auc = roc_auc_score(y_te, test_preds_ens)
+    acc = (y_pred == y_te).mean()
+    trade_rate = y_pred.mean()
+    print(f"AUC: {auc:.4f}")
+    print(f"Accuracy: {acc:.4f}   Trade rate: {trade_rate:.2%}")
+
+    cm = confusion_matrix(y_te, y_pred)
+    print(f"\nConfusion Matrix:")
+    print(f"{'':>10} {'NOT_BUY':>8} {'BUY':>6}")
+    print(f"{'NOT_BUY':>10} {cm[0,0]:>8} {cm[0,1]:>6}")
+    print(f"{'BUY':>10} {cm[1,0]:>8} {cm[1,1]:>6}")
+
+    if y_pred.sum() > 0:
+        buy_mask = y_pred == 1
+        buy_prec = (y_te[buy_mask] == 1).mean()
+        print(f"\nBUY-class precision: {buy_prec:.4f}  "
+              f"({buy_mask.sum()} trades, {int((y_te[buy_mask]==1).sum())} winners)")
+
+    try:
+        gain = final_models[0].get_score(importance_type="gain")
+        if gain:
+            imp = pd.DataFrame({
+                "feature": list(gain.keys()),
+                "gain":    list(gain.values()),
+            }).sort_values("gain", ascending=False).head(25)
+            print("\nTop 25 Features (final model):")
+            print(imp.to_string())
+    except Exception as e:
+        print(f"Importance error: {e}")
+
+    return final_models[0], scaler_final, chosen_thr
+
+
+# =========================================================
+# PREDICTION
+# =========================================================
+
+def load_model():
+    if not os.path.exists(MODEL_PATH):
+        return None, None, None, 0.5
+    model = xgb.Booster()
+    model.load_model(MODEL_PATH)
+    scaler = joblib.load(SCALER_PATH)
+    with open(FEATURES_PATH) as f:
+        features = json.load(f)
+    thr = 0.5
+    if os.path.exists(THRESH_PATH):
+        with open(THRESH_PATH) as f:
+            thr = json.load(f).get("threshold", 0.5)
+    # load full ensemble
+    ensemble = [model]
+    for p in sorted(glob.glob(os.path.join(MODEL_DIR, "xgb_seed_*.json"))):
+        m = xgb.Booster()
+        m.load_model(p)
+        ensemble.append(m)
+    # de-dup
+    seen = set(); uniq = []
+    for m in ensemble:
+        key = id(m)
+        if key not in seen:
+            seen.add(key); uniq.append(m)
+    ensemble = uniq
+    return model, scaler, features, thr, ensemble
+
+
+def predict_universe(tickers=None):
+    if tickers is None:
+        tickers = [t for t in TICKERS if t not in ETF_TICKERS]
+    loaded = load_model()
+    if loaded[0] is None:
+        return pd.DataFrame()
+    _, scaler, features, thr, ensemble = loaded
+
+    funda = fetch_all_fundamentals()
+    results = []
+
+    end = datetime.now()
+    start = end - timedelta(days=500)
+
+    for ticker in tqdm(tickers, desc="Predicting"):
+        try:
+            t = yf.Ticker(ticker)
+            df_t = t.history(start=start.strftime("%Y-%m-%d"),
+                             end=end.strftime("%Y-%m-%d"),
+                             interval="1d", auto_adjust=True)
+            if df_t.empty or len(df_t) < 250:
+                continue
+            keep = [c for c in ["Open", "High", "Low", "Close", "Volume"]
+                    if c in df_t.columns]
+            df_t = df_t[keep].copy()
+            df_t["Ticker"] = ticker
+            df_t = df_t.reset_index()
+            df_t = add_features(df_t)
+
+            spy_path = os.path.join(MODEL_DIR, "partial_daily_v2", "SPY.pkl")
+            if os.path.exists(spy_path):
+                spy = pd.read_pickle(spy_path)
+                spy = add_features(spy)
+                latest_spy = spy.iloc[-1:]
+                for c in ["SPY_Trend_Strength", "SPY_Vol_Regime", "Market_Breadth_50",
+                          "SPY_Above_20", "SPY_Above_50", "SPY_Above_200"]:
+                    if c in latest_spy.columns:
+                        df_t[c] = latest_spy[c].iloc[0]
+                for col in ["Return_1d", "Return_5d", "Return_10d", "Return_21d"]:
+                    if col in latest_spy.columns:
+                        spy_val = latest_spy[col].iloc[0]
+                        if col in df_t.columns:
+                            df_t[f"{col}_vsSPY"] = df_t[col] - spy_val
+
+            for col in features:
+                if "_Rank" in col or "_Z" in col:
+                    df_t[col] = 0.5
+                elif "_SectorRel" in col or "_vsSPY" in col:
+                    df_t[col] = 0.0
+
+            f = funda.get(ticker, {})
+            for col in ["market_cap", "pe_ratio", "forward_pe", "ps_ratio", "pb_ratio",
+                         "rev_growth", "eps_growth", "current_ratio", "debt_equity",
+                         "op_margin", "net_margin", "roe", "fcf_yield", "div_yield",
+                         "gross_margin"]:
+                df_t[col] = f.get(col, np.nan)
+
+            sector = TICKER_SECTOR.get(ticker, "Unknown")
+            for s in SECTOR_NAMES:
+                df_t[f"Sector_{s}"] = 1.0 if s == sector else 0.0
+            df_t["Is_ETF"] = 0.0
+
+            latest = df_t.iloc[-1:].copy()
+            X = np.zeros((1, len(features)))
+            for i, feat in enumerate(features):
+                if feat in latest.columns:
+                    v = latest[feat].values[0]
+                    X[0, i] = v if pd.notna(v) else 0
+
+            Xs = scaler.transform(X)
+            d = xgb.DMatrix(Xs, feature_names=features)
+            probs = np.mean([m.predict(d) for m in ensemble], axis=0)
+            prob = float(probs[0])
+
+            results.append({
+                "ticker": ticker,
+                "price": float(latest["Close"].values[0]),
+                "buy_prob": prob,
+                "pred": "BUY" if prob > thr else "NOT_BUY",
+            })
+        except Exception:
+            continue
+
+    df = pd.DataFrame(results).sort_values("buy_prob", ascending=False).reset_index(drop=True)
+    df["rank"] = range(1, len(df) + 1)
+    return df
+
+
+# =========================================================
+# SCREEN
+# =========================================================
+
+def screen_universe(tickers=None):
+    if tickers is None:
+        tickers = TICKERS
+    results = []
+    for ticker in tqdm(tickers, desc="Screening"):
+        try:
+            t = yf.Ticker(ticker)
+            info = t.info or {}
+            cr, de, om, nm, mc = (info.get(k, 0) for k in
+                ["currentRatio", "debtToEquity", "operatingMargins",
+                 "profitMargins", "marketCap"])
+            passed = all([
+                pd.notna(cr) and cr >= 1.0,
+                pd.notna(de) and de <= 1.0,
+                pd.notna(om) and om >= 0.20,
+                pd.notna(nm) and nm >= 0.10,
+                pd.notna(mc) and mc >= 2e9,
+            ])
+            results.append({"ticker": ticker, "pass": passed,
+                "current_ratio": cr, "debt_equity": de,
+                "op_margin": om, "net_margin": nm, "market_cap": mc})
+        except:
+            results.append({"ticker": ticker, "pass": False})
+    df = pd.DataFrame(results)
+    print(f"\nPassed: {df['pass'].sum()}/{len(df)}")
+    if df["pass"].sum() > 0:
+        print(df[df["pass"]][["ticker","market_cap","current_ratio","debt_equity",
+                               "op_margin","net_margin"]].to_string())
+    return df
+
+
+# =========================================================
+# MODES
+# =========================================================
+
+def mode_build():
+    df, features = build_dataset()
+    df.to_parquet(os.path.join(MODEL_DIR, "dataset_daily_v2.parquet"))
+    print(f"Saved: {len(df):,} rows")
+    return df, features
+
+def mode_train():
+    try:
+        df = pd.read_parquet(os.path.join(MODEL_DIR, "dataset_daily_v2.parquet"))
+        with open(FEATURES_PATH) as f:
+            features = json.load(f)
+    except FileNotFoundError:
+        df, features = mode_build()
+    train_xgboost(df, features)
+
+def mode_predict():
+    preds = predict_universe()
+    if preds.empty:
+        print("No predictions.")
+        return
+    cols = ["rank","ticker","buy_prob","price","pred"]
+    print("\nTop 20 BUY signals:")
+    print(preds.head(20)[cols].to_string())
+    preds.to_csv(os.path.join(MODEL_DIR, "daily_predictions_v2.csv"), index=False)
+
+def mode_screen():
+    screen_universe()
+
+def mode_all():
+    df, features = mode_build()
+    train_xgboost(df, features)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--mode", type=str, default="all",
+                        choices=["build","train","predict","screen","all"])
+    args = parser.parse_args()
+    MODES = {"build": mode_build, "train": mode_train,
+             "predict": mode_predict, "screen": mode_screen, "all": mode_all}
+    MODES[args.mode]()
