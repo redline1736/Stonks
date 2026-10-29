@@ -1,0 +1,112 @@
+(.venv) PS C:\Users\ldale\project\main\Stonks\src\stock\v3> python3 main.py --mode all
+Total stocks: 477 across 24 sectors
+  - 23 sector groups, 59 ETFs, 6 regime tickers
+Daily data from 2000-01-01 to 2026-10-29
+Target: top 70% of 5d returns
+Training: num_boost_round=6000, early_stopping=200, lr=0.02
+============================================================
+BUILDING DATASET v3 — FUTURE_DAYS=5
+============================================================
+Loading cached daily data (v3)...
+Loaded 688,381 rows across 126 tickers
+Loading cached fundamentals...
+Loading cached regime data...
+Engineering per-ticker features...
+Features: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 477/477 [00:41<00:00, 11.52it/s]
+Dropped (insufficient history <300d): ['EA', 'WBD', 'IPG', 'MMC', 'HUM', 'CNC', 'MOH', 'ZTS', 'IDXX', 'DXCM', 'IQV', 'STE', 'RMD', 'WMT', 'PG', 'COST', 'KO', 'PEP', 'CL', 'MDLZ', 'MO', 'PM', 'UL', 'NSRGY', 'KDP', 'MNST', 'KHC', 'GIS', 'K', 'HSY', 'HRL', 'TSN', 'CAG', 'CPB', 'SJM', 'CHD', 'CLX', 'KVUE', 'EL', 'KMB', 'XOM', 'CVX', 'COP', 'EOG', 'SLB', 'OXY', 'MPC', 'VLO', 'PSX', 'PXD', 'DVN', 'HAL', 'BKR', 'WMB', 'OKE', 'CTRA', 'FANG', 'MRO', 'APA', 'HES', 'EQT', 'AR', 'PR', 'RRC', 'CAT', 'GE', 'BA', 'UPS', 'RTX', 'HON', 'MMM', 'LMT', 'DE', 'SPGI', 'UNP', 'CSX', 'NSC', 'FDX', 'EMR', 'ETN', 'PH', 'CMI', 'PCAR', 'JCI', 'TT', 'ITW', 'WM', 'RSG', 'URI', 'FAST', 'ODFL', 'VRSK', 'IR', 'AME', 'ROP', 'LIN', 'SHW', 'APD', 'ECL', 'NEM', 'FCX', 'DOW', 'DD', 'PPG', 'LYB', 'ALB', 'CE', 'EMN', 'VMC', 'MLM', 'IFF', 'FMC', 'CF', 'MOS', 'NUE', 'STLD', 'PKG', 'IP', 'WRK', 'NEE', 'DUK', 'SO', 'CEG', 'AEP', 'SRE', 'EXC', 'XEL', 'PEG', 'WEC', 'ED', 'EIX', 'D', 'ETR', 'ES', 'AWK', 'ATO', 'CMS', 'DTE', 'FE', 'AEE', 'LNT', 'NI', 'PPL', 'PLD', 'AMT', 'EQIX', 'WELL', 'SPG', 'PSA', 'O', 'DLR', 'VICI', 'AVB', 'EQR', 'ESS', 'MAA', 'UDR', 'CPT', 'HST', 'BXP', 'KIM', 'REG', 'FRT', 'ARE', 'BAM', 'EXR', 'IRM', 'VRT', 'STRL', 'NVT', 'ENPH', 'FSLR', 'ANET', 'CCI', 'SBAC', 'MRVL', 'ON', 'MPWR', 'SWKS', 'QRVO', 'MCHP', 'NXPI', 'WOLF', 'ARM', 'CRDO', 'LSCC', 'ALGM', 'POWI', 'TXT', 'HII', 'LDOS', 'HEI', 'TDG', 'LHX', 'NOC', 'GD', 'HWM', 'AXON', 'RKLB', 'SPCE', 'BIIB', 'GILD', 'AMGN', 'BMRN', 'ALNY', 'INCY', 'EXEL', 'UTHR', 'IONS', 'RARE', 'BLUE', 'CRSP', 'NTLA', 'BEAM', 'ARGX', 'BBIO', 'FOLD', 'PTCT', 'CUBE', 'LSI', 'NHI', 'DOC', 'WPC', 'NNN', 'STOR', 'GTY', 'EPRT', 'BXMT', 'SQ', 'PYPL', 'COIN', 'HOOD', 'AFRM', 'SOFI', 'UPST', 'LC', 'NU','MELI', 'DASH', 'GLXY', 'RIOT', 'MARA', 'S', 'OKTA', 'FTNT', 'CYBR', 'RPD', 'SPLK', 'TENB', 'QLYS', 'VRNS', 'EBAY', 'ETSY', 'W', 'CHWY', 'RVLV', 'GLBE', 'SE', 'BABA', 'JD', 'PDD', 'MNSO', 'TEAM', 'ATLASSIAN', 'VEEV', 'NIO', 'XPEV', 'LI', 'SEDG', 'RUN', 'JKS', 'ARRY', 'AMP', 'TROW', 'IVZ', 'BEN', 'FHI', 'JHG', 'AB', 'LM', 'VCTR', 'BSIG', 'BRK-B', 'AIG', 'WRB', 'GL', 'LNC', 'PFG', 'CNA', 'RGA', 'MTG', 'FNF', 'SPY', 'QQQ', 'IWM', 'DIA', 'VTI', 'VOO', 'XLF', 'XLE', 'XLK', 'XLV', 'XLY', 'XLP', 'XLI', 'XLU', 'XLB', 'XLC', 'XLRE', 'EFA', 'EEM', 'VEA', 'VWO', 'EWJ', 'EWZ', 'MCHI', 'INDA', 'TLT', 'IEF', 'SHY', 'BIL', 'LQD', 'HYG', 'JNK', 'MUB', 'TIP', 'GLD', 'SLV', 'USO', 'UNG', 'DBA', 'DBC', 'PPLT', 'VNQ', 'SCHH', 'USRT', 'REM', 'VXX', 'UVXY', 'SVXY', 'BITO', 'IBIT', 'ETHE', 'ARKK', 'ARKW', 'ARKF', 'SOXL', 'TQQQ', 'SQQQ', 'SPHB', 'SPLV']
+Adding cross-sectional + regime features...
+Adding fundamentals...
+Target: {0: 480053, 1: 208328}
+Avg Future Return (5d): 0.0039
+Removing 65 high-NaN features
+Removing 36 highly correlated features
+After drop: 688,381 rows (dropped 0)
+Total features: 139
+Saved: 688,381 rows
+
+============================================================
+TRAINING XGBOOST v3 — TARGET=top_30, FUTURE_DAYS=5
+  num_boost_round=6000, early_stopping=200, lr=0.02
+============================================================
+
+--- fold1: train <2020-01-01, val 2020-01-01 -> 2022-01-01 ---
+[0]     val-auc:0.55886
+[100]   val-auc:0.57752
+[200]   val-auc:0.57782
+[300]   val-auc:0.57732
+[400]   val-auc:0.57712
+[448]   val-auc:0.57684
+  best_iter=248
+
+--- fold2: train <2022-01-01, val 2022-01-01 -> 2024-01-01 ---
+[0]     val-auc:0.55682
+[100]   val-auc:0.56753
+[200]   val-auc:0.56888
+[300]   val-auc:0.56878
+[400]   val-auc:0.56850
+[431]   val-auc:0.56830
+  best_iter=231
+
+--- Final: train <2025-01-01 ---
+  train rows=630,800  pos_rate=0.303  n_rounds=400
+
+--- Threshold calibration ---
+  Test-ensemble rate-thr (20%): 0.5436  <-- USED
+  OOF          rate-thr (20%): 0.5496  (reference)
+  OOF F1-best           thr: 0.2600  F1=0.4635
+  Expected trade rate on test: 20.00%
+
+============================================================
+TEST SET PERFORMANCE (5-seed ensemble, thr=0.544)
+============================================================
+              precision    recall  f1-score   support
+
+     NOT_BUY       0.72      0.82      0.77     40405
+         BUY       0.38      0.25      0.30     17176
+
+    accuracy                           0.65     57581
+   macro avg       0.55      0.54      0.53     57581
+weighted avg       0.62      0.65      0.63     57581
+
+AUC: 0.5734
+Accuracy: 0.6520   Trade rate: 20.00%
+
+Confusion Matrix:
+            NOT_BUY    BUY
+   NOT_BUY    33215   7190
+       BUY    12850   4326
+
+BUY-class precision: 0.3757  (11516 trades, 4326 winners)
+
+Top 30 Features (final model):
+                      feature        gain
+5              ATR_Ratio_Rank  199.664825
+6                 ATR_Ratio_Z  184.066544
+121          Volatility_20d_Z  183.226593
+119       Volatility_20d_Rank  143.641754
+113         Sector_Financials   95.680977
+123        Volatility_5d_Rank   68.393990
+124           Volatility_5d_Z   58.413002
+125            Volatility_60d   56.879486
+23                     EMA_10   54.640423
+120  Volatility_20d_SectorRel   49.551952
+48         Momentum_12_1_Rank   48.597164
+114         Sector_Healthcare   47.725250
+4                   ATR_Ratio   45.823402
+131         Volume_Ratio_Rank   42.460228
+126          Volatility_Ratio   41.491047
+50            Momentum_12_1_Z   40.457008
+105   Sector_Asset Management   39.699829
+62    Price_Position_200_Rank   38.704926
+22               Drawdown_60d   37.849838
+54             Momentum_6_1_Z   37.740391
+101         SMA_20_Ratio_Rank   36.479397
+132    Volume_Ratio_SectorRel   36.460487
+110      Sector_Cybersecurity   35.763100
+133            Volume_Ratio_Z   35.624912
+52          Momentum_6_1_Rank   35.350079
+91             Return_5d_Rank   35.247238
+47              Momentum_12_1   35.025307
+107     Sector_Cloud Software   34.908321
+10                   BB_Width   34.059525
+3                         ATR   34.025658
