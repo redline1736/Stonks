@@ -1,0 +1,69 @@
+Downloading data...
+Building features...
+
+Dataset shape : (1416, 39)
+Features       : 38
+Class balance  : {0: 766, 1: 650}
+
+Training XGBoost with Walk-Forward Validation...
+Fold 1 | N_test= 202 | Model=0.5000 | Baseline=0.5891
+Fold 2 | N_test= 202 | Model=0.5693 | Baseline=0.5693
+Fold 3 | N_test= 202 | Model=0.5594 | Baseline=0.5644
+Fold 4 | N_test= 202 | Model=0.5248 | Baseline=0.5297
+Fold 5 | N_test= 202 | Model=0.4703 | Baseline=0.4653
+Fold 6 | N_test= 202 | Model=0.5594 | Baseline=0.5594
+
+--- OVERALL RESULTS ---
+Average Model Accuracy : 0.5305
+Average Baseline Acc   : 0.5462
+
+Classification Report (Last Fold):
+              precision    recall  f1-score   support
+
+           0       0.61      0.58      0.59       113
+           1       0.50      0.54      0.52        89
+
+    accuracy                           0.56       202
+   macro avg       0.56      0.56      0.56       202
+weighted avg       0.56      0.56      0.56       202
+
+
+Feature Importances (Last Fold):
+IEF_vs_TNX_5D_Preference      : 0.0564
+ZN_TNX_Raw_Basis              : 0.0427
+TYX_5d_Change                 : 0.0383
+IEF_1M_Change                 : 0.0348
+TMF_vs_TLT                    : 0.0313
+SPY_IEF_Corr_60D              : 0.0306
+Yield_Curve_10Y_5Y            : 0.0301
+FF_vs_TNX_Spread              : 0.0292
+FF_1M_Change                  : 0.0285
+IEF_1M_Return                 : 0.0283
+FF_Implied_Rate               : 0.0283
+TNX_1M_Change                 : 0.0283
+FF_5D_Change                  : 0.0281
+IEF_vs_TNX_1M_Preference      : 0.0281
+Yield_Curve_Change_5D         : 0.0273
+SPY_IEF_Corr_Change           : 0.0271
+SPY_7M_Return                 : 0.0256
+MOVE_1M_Change                : 0.0254
+MOVE_VIX_Ratio                : 0.0253
+Yield_Curve_10Y_3M            : 0.0250
+ZN_IEF_Raw_Basis              : 0.0250
+ZN_TNX_Inverse_Spread         : 0.0246
+VIX_vs_1M_Ratio               : 0.0242
+Yield_Curve_10Y_30T           : 0.0242
+TNX_1M_Return                 : 0.0241
+TLT_5d_Change                 : 0.0240
+TLT_1M_Return                 : 0.0230
+SPY_IEF_Corr_20D              : 0.0221
+MOVE_5D_Change                : 0.0216
+IEF_5D_Change                 : 0.0215
+TNX_5D_Change                 : 0.0203
+IEF_RealVol_20D               : 0.0195
+IEF_RealVol_Change            : 0.0193
+SPY_vs_TNX_1M_Preference      : 0.0191
+TMF_5D_Change                 : 0.0188
+VIX_Term_Structure            : 0.0181
+SPY_TNX_Momentum_Divergence   : 0.0174
+SPY_1M_Return                 : 0.0143

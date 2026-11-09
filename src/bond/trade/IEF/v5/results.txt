@@ -1,0 +1,76 @@
+Downloading data...
+Building features...
+
+Dataset shape : (412, 45)
+Features       : 44
+Class balance  : {0: 251, 1: 161}
+
+Training XGBoost with Walk-Forward Validation...
+Fold 1 | N_test=  58 | Model=0.6724 | Baseline=0.6552
+Fold 2 | N_test=  58 | Model=0.5517 | Baseline=0.5517
+Fold 3 | N_test=  58 | Model=0.5172 | Baseline=0.6379
+Fold 4 | N_test=  58 | Model=0.6552 | Baseline=0.4828
+Fold 5 | N_test=  58 | Model=0.6724 | Baseline=0.4483
+Fold 6 | N_test=  58 | Model=0.4655 | Baseline=0.6207
+
+--- OVERALL RESULTS ---
+Average Model Accuracy : 0.5891
+Average Baseline Acc   : 0.5661
+
+Classification Report (Last Fold):
+              precision    recall  f1-score   support
+
+           0       0.73      0.22      0.34        36
+           1       0.40      0.86      0.55        22
+
+    accuracy                           0.47        58
+   macro avg       0.57      0.54      0.45        58
+weighted avg       0.60      0.47      0.42        58
+
+
+Feature Importances (Last Fold):
+ZN_TNX_Raw_Basis              : 0.0552
+Price_Curve_30Y_30T           : 0.0475
+Price_Curve_30Y_10Y           : 0.0456
+SPY_TMF_Corr_60D              : 0.0432
+ZN_TNX_Inverse_Spread         : 0.0379
+SPY_7M_Return                 : 0.0340
+FF_5D_Change                  : 0.0328
+TMF_TNX_Inverse_Spread        : 0.0325
+Price_Curve_30Y_5Y            : 0.0305
+FF_vs_TNX_Spread              : 0.0280
+FF_Implied_Rate               : 0.0272
+Yield_Curve_10Y_3M            : 0.0262
+TYX_5d_Change                 : 0.0250
+TNX_1M_Return                 : 0.0249
+MOVE_VIX_Ratio                : 0.0239
+FF_1M_Change                  : 0.0234
+TLT_1M_Return                 : 0.0226
+Yield_Curve_Change_5D         : 0.0207
+TMF_vs_TLT                    : 0.0204
+IEF_1M_Change                 : 0.0200
+MOVE_1M_Change                : 0.0195
+VIX_vs_1M_Ratio               : 0.0193
+TLT_TNX_Inverse_Spread        : 0.0187
+SPY_1M_Return                 : 0.0184
+MOVE_5D_Change                : 0.0184
+TLT_5d_Change                 : 0.0183
+TNX_1M_Change                 : 0.0181
+Price_Curve_30Y_5Y_Change_5D  : 0.0181
+IEF_5D_Change                 : 0.0175
+ZN_IEF_Raw_Basis              : 0.0171
+Yield_Curve_10Y_30T           : 0.0170
+SPY_TMF_Corr_Change           : 0.0166
+TMF_5D_Change                 : 0.0164
+Yield_Curve_10Y_5Y            : 0.0163
+VIX_Term_Structure            : 0.0161
+Price_Curve_30Y_10Y_Change_5D : 0.0157
+SPY_vs_TNX_1M_Preference      : 0.0155
+SPY_TMF_Corr_20D              : 0.0149
+TNX_5D_Change                 : 0.0126
+SPY_TNX_Momentum_Divergence   : 0.0122
+IEF_vs_TNX_1M_Preference      : 0.0121
+IEF_1M_Return                 : 0.0105
+IEF_vs_TNX_5D_Preference      : 0.0100
+Price_Curve_30Y_30T_Change_5D : 0.0090
+(.venv) PS C:\Users\ldale\project\main\Stonks\src\bond\trade\TMF\v1> 

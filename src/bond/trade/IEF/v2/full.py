@@ -11,7 +11,22 @@ warnings.filterwarnings('ignore')
 # 1. DOWNLOAD DATA
 # ------------------------------------------------------------------
 print("Downloading data...")
-tickers = ["SPY", "^TNX", "^VIX", "^VIX3M", "^MOVE", "ZN=F", "^FVX", "^IRX", "IEF", "TLT", "^TYX", "ZQ=F"]
+tickers = ["SPY", 
+           "^TNX", 
+           "^VIX", 
+           "^VIX3M", 
+           "^MOVE",
+           "^IRX", # Yield 13 week bonds
+           "^FVX", # Yield  5 year bonds
+           "^TNX", # Yield 10 year bonds
+           "^TYX", #  Yield  30 year bonds
+           "IEI", # 5 year bonds 
+           "IEF",  # 10 year bonds
+           "TLT", # 20 year bonds
+           "TMF", # 20 year bonds leverage
+           "ZN=F", # Future ten year bonds
+           "ZQ=F", # future 25 year bonds
+           ]
 
 data_raw = yf.download(tickers, start="2020-01-01", auto_adjust=False, progress=False)
 if data_raw.empty:
@@ -52,6 +67,11 @@ features['TNX_5D_Change'] = df['TNX'] - df['TNX'].shift(5)
 features['TNX_1M_Change'] = df['TNX'] - df['TNX'].shift(21)
 features['TNX_1M_Return'] = df['TNX'].pct_change(21)
 
+# TMF
+features['TMF_5D_Change'] = df['TMF'].pct_change(5)
+features['TMF_vs_TLT'] = features['TMF_5D_Change'] / df['TLT'].shift(5)
+features['TMF_TNX_Inverse_Spread'] = df['TMF'] - (100 - df['TNX'])
+
 # ZQ
 features['FF_Implied_Rate'] = 100 - df['ZQ']               # implied FF rate
 features['FF_5D_Change']    = features['FF_Implied_Rate'] - features['FF_Implied_Rate'].shift(5)
@@ -62,6 +82,7 @@ features['FF_vs_TNX_Spread'] = df['TNX'] - features['FF_Implied_Rate']
 features['TLT_1M_Return'] = df['TLT'].pct_change(21)
 features['TLT_5d_Change'] = df['TLT']  - df['TLT'].shift(5)
 
+features['TLT_TNX_Inverse_Spread'] = df['TLT'] - (100 - df['TNX'])
 # TYX
 features['TYX_5d_Change'] = df['TYX'] -  df['TYX'].shift(5)
 
@@ -109,6 +130,16 @@ features['Yield_Curve_10Y_30T'] = df['TNX'] - df['TYX']
 features['Yield_Curve_Change_5D'] = (
     features['Yield_Curve_10Y_3M'] - features['Yield_Curve_10Y_3M'].shift(5)
 )
+
+# Price curve
+features['Price_Curve_10Y_5Y'] = df['IEF'] - df['IEI']
+features['Price_Curve_10Y_30T'] = df['TNX'] - df['TLT']
+features['Price_Curve_10Y_30T_leverage'] = df['TNX'] - df['TMF']
+
+features['Price_Curve_Change_5D'] = (
+    features['Price_Curve_10Y_5Y'] - features['Price_Curve_10Y_5Y'].shift(5)
+)
+
 
 
 

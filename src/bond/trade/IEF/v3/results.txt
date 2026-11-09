@@ -1,0 +1,9 @@
+Shape: (2166, 36)  |  balance: {0: np.int64(1085), 1: np.int64(1081)}
+After screen: 32 features kept
+Fold 1 | th=0.49 | Model=0.5596 | Base=0.5457 | AUC=0.528 | p(mean)=0.544 | #pred1=216/361
+Fold 2 | th=0.53 | Model=0.4737 | Base=0.4681 | AUC=0.466 | p(mean)=0.523 | #pred1=169/361
+Fold 3 | th=0.50 | Model=0.4571 | Base=0.4377 | AUC=0.445 | p(mean)=0.547 | #pred1=202/361
+Fold 4 | th=0.52 | Model=0.4709 | Base=0.4931 | AUC=0.469 | p(mean)=0.589 | #pred1=283/361
+Fold 5 | th=0.51 | Model=0.5125 | Base=0.4848 | AUC=0.504 | p(mean)=0.664 | #pred1=319/361
+
+Avg Model=0.4947 | Avg Base=0.4859 | Avg AUC=0.482

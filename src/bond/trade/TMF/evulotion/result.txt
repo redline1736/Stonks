@@ -1,0 +1,124 @@
+(.venv) PS C:\Users\ldale\project\main\Stonks\src\bond\trade\TMF\v3> python3 ../evulotion/test.py
+Downloading data...
+Building features...
+
+Full feature pool : 66 features
+Dataset shape     : (412, 67)
+Class balance     : {0: 251, 1: 161}
+
+EA: 24 pop × 18 gen | selecting 33/66 features
+Initial best fitness: 0.5891
+Gen  1/18 | best=0.5920 | mean=0.5577 | cache=42 | patience=0/5
+Gen  2/18 | best=0.5920 | mean=0.5626 | cache=63 | patience=1/5
+Gen  3/18 | best=0.5948 | mean=0.5680 | cache=81 | patience=0/5
+Gen  4/18 | best=0.6063 | mean=0.5758 | cache=103 | patience=0/5
+Gen  5/18 | best=0.6121 | mean=0.5728 | cache=122 | patience=0/5
+Gen  6/18 | best=0.6121 | mean=0.5852 | cache=141 | patience=1/5
+Gen  7/18 | best=0.6207 | mean=0.5892 | cache=158 | patience=0/5
+Gen  8/18 | best=0.6207 | mean=0.5843 | cache=178 | patience=1/5
+Gen  9/18 | best=0.6466 | mean=0.5929 | cache=198 | patience=0/5
+Gen 10/18 | best=0.6466 | mean=0.6045 | cache=216 | patience=1/5
+Gen 11/18 | best=0.6494 | mean=0.6081 | cache=238 | patience=0/5
+Gen 12/18 | best=0.6494 | mean=0.6085 | cache=258 | patience=1/5
+Gen 13/18 | best=0.6494 | mean=0.6130 | cache=277 | patience=2/5
+Gen 14/18 | best=0.6494 | mean=0.6112 | cache=297 | patience=3/5
+Gen 15/18 | best=0.6494 | mean=0.6137 | cache=316 | patience=4/5
+Gen 16/18 | best=0.6494 | mean=0.6147 | cache=336 | patience=5/5
+Early stop: no improvement for 5 generations.
+EA finished in 1136.2s
+
+=== BEST 33 FEATURES ===
+ 1. IEF_5D_Change
+ 2. IEF_1M_Change
+ 3. TNX_5D_Change
+ 4. TNX_1M_Change
+ 5. TNX_1M_Return
+ 6. FF_vs_TNX_Spread
+ 7. TLT_1M_Return
+ 8. TLT_5d_Change
+ 9. SPY_TNX_Momentum_Divergence
+10. SPY_TMF_Corr_Change
+11. VIX_Term_Structure
+12. VIX_vs_1M_Ratio
+13. MOVE_5D_Change
+14. ZN_TNX_Raw_Basis
+15. ZN_IEF_Raw_Basis
+16. Yield_Curve_10Y_3M
+17. Yield_Curve_10Y_5Y
+18. Price_Curve_30Y_5Y
+19. Price_Curve_30Y_30T
+20. Price_Curve_30Y_5Y_Change_5D
+21. Price_Curve_30Y_10Y_Change_5D
+22. Price_Curve_30Y_30T_Change_5D
+23. IEF_RV_20D
+24. IEF_RV_60D
+25. TLT_RV_60D
+26. TMF_RV_20D
+27. TNX_Vol_20D
+28. SPY_Vol_Ratio_20_60
+29. IEF_Vol_Ratio_20_60
+30. TLT_Vol_Ratio_20_60
+31. MOVE_Vol_20D
+32. VIX_Pct_Rank_252D
+33. SPY_Downside_Vol_20D
+
+Best fitness (walk-forward acc): 0.6494
+Baseline (all 66 feats) : 0.5287
+
+Walk-forward detail on best subset:
+Fold 1 | N= 58 | Model=0.6552 | Baseline=0.6552
+Fold 2 | N= 58 | Model=0.6034 | Baseline=0.5517
+Fold 3 | N= 58 | Model=0.6379 | Baseline=0.6379
+Fold 4 | N= 58 | Model=0.5862 | Baseline=0.4828
+Fold 5 | N= 58 | Model=0.7069 | Baseline=0.4483
+Fold 6 | N= 58 | Model=0.7069 | Baseline=0.6207
+
+Mean Model Acc   : 0.6494
+Mean Baseline Acc: 0.5661
+
+Classification report (last fold):
+              precision    recall  f1-score   support
+
+           0       0.70      0.92      0.80        36
+           1       0.73      0.36      0.48        22
+
+    accuracy                           0.71        58
+   macro avg       0.71      0.64      0.64        58
+weighted avg       0.71      0.71      0.68        58
+
+
+Final feature importances (last fold):
+ZN_TNX_Raw_Basis                : 0.0718
+Price_Curve_30Y_30T             : 0.0529
+FF_vs_TNX_Spread                : 0.0480
+TNX_Vol_20D                     : 0.0472
+SPY_Downside_Vol_20D            : 0.0445
+IEF_RV_60D                      : 0.0438
+Price_Curve_30Y_5Y              : 0.0372
+MOVE_5D_Change                  : 0.0344
+TLT_RV_60D                      : 0.0339
+Yield_Curve_10Y_3M              : 0.0334
+Yield_Curve_10Y_5Y              : 0.0320
+Price_Curve_30Y_30T_Change_5D   : 0.0291
+TNX_1M_Change                   : 0.0287
+SPY_Vol_Ratio_20_60             : 0.0281
+Price_Curve_30Y_10Y_Change_5D   : 0.0280
+TNX_1M_Return                   : 0.0271
+IEF_Vol_Ratio_20_60             : 0.0264
+TNX_5D_Change                   : 0.0260
+MOVE_Vol_20D                    : 0.0254
+ZN_IEF_Raw_Basis                : 0.0240
+VIX_vs_1M_Ratio                 : 0.0235
+TLT_5d_Change                   : 0.0233
+IEF_5D_Change                   : 0.0232
+SPY_TMF_Corr_Change             : 0.0225
+TLT_Vol_Ratio_20_60             : 0.0224
+TLT_1M_Return                   : 0.0220
+VIX_Pct_Rank_252D               : 0.0218
+IEF_1M_Change                   : 0.0218
+SPY_TNX_Momentum_Divergence     : 0.0216
+VIX_Term_Structure              : 0.0213
+IEF_RV_20D                      : 0.0198
+Price_Curve_30Y_5Y_Change_5D    : 0.0196
+TMF_RV_20D                      : 0.0153
+(.venv) PS C:\Users\ldale\project\main\Stonks\src\bond\trade\TMF\v3>  
