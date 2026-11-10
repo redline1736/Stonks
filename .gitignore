@@ -1,4 +1,4 @@
 src/.venv
-src/stock/v4/v4.1/.env
+src/.env
 src/stock/v3/models/
 src/stock/v3/models/dataset_v3.parquet
