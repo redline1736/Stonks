@@ -1,2 +1,4 @@
 .venv/
 .env
+models/
+src/stock/v3/models/dataset_v3.parquet
